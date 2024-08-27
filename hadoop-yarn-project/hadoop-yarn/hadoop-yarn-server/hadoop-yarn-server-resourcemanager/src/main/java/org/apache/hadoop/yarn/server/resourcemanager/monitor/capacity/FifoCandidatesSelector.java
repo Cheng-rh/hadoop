@@ -63,20 +63,21 @@ public class FifoCandidatesSelector
       Resource clusterResource, Resource totalPreemptionAllowed) {
     Map<ApplicationAttemptId, Set<RMContainer>> curCandidates = new HashMap<>();
     // Calculate how much resources we need to preempt
-
+    // 计算每个叶子节点可以被抢占的资源
     preemptableAmountCalculator.computeIdealAllocation(clusterResource,
         totalPreemptionAllowed);
 
     // Previous selectors (with higher priority) could have already
     // selected containers. We need to deduct preemptable resources
     // based on already selected candidates.
+    //基于已选择container,更新抢占资源
     CapacitySchedulerPreemptionUtils
         .deductPreemptableResourcesBasedSelectedCandidates(preemptionContext,
             selectedCandidates);
 
     List<RMContainer> skippedAMContainerlist = new ArrayList<>();
 
-    // Loop all leaf queues
+    // 循环所有的叶子节点
     for (String queueName : preemptionContext.getLeafQueueNames()) {
       // check if preemption disabled for the queue
       if (preemptionContext.getQueueByPartition(queueName,

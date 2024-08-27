@@ -40,6 +40,7 @@ public class CapacitySchedulerPreemptionUtils {
     Map<String, Resource> resToObtainByPartition = new HashMap<>();
     // compute resToObtainByPartition considered inter-queue preemption
     for (TempQueuePerPartition qT : context.getQueuePartitions(queueName)) {
+      // 如果队列禁止资源抢占，则跳过
       if (qT.preemptionDisabled) {
         continue;
       }
@@ -48,6 +49,7 @@ public class CapacitySchedulerPreemptionUtils {
       // 0
       if (Resources.greaterThan(context.getResourceCalculator(),
           clusterResource, qT.getActuallyToBePreempted(), Resources.none())) {
+        // 分区 -- 需要被抢占的资源
         resToObtainByPartition.put(qT.partition,
             Resources.clone(qT.getActuallyToBePreempted()));
       }
@@ -73,7 +75,9 @@ public class CapacitySchedulerPreemptionUtils {
   public static void deductPreemptableResourcesBasedSelectedCandidates(
       CapacitySchedulerPreemptionContext context,
       Map<ApplicationAttemptId, Set<RMContainer>> selectedCandidates) {
+    // 按appid进行遍历
     for (Set<RMContainer> containers : selectedCandidates.values()) {
+      // 按container遍历
       for (RMContainer c : containers) {
         SchedulerNode schedulerNode = context.getScheduler()
             .getSchedulerNode(c.getAllocatedNode());
@@ -81,17 +85,20 @@ public class CapacitySchedulerPreemptionUtils {
           continue;
         }
 
+        // 获取该container的队列
         String partition = schedulerNode.getPartition();
         String queue = c.getQueueName();
         TempQueuePerPartition tq = context.getQueueByPartition(queue,
             partition);
 
+        // 获取该container的资源
         Resource res = c.getReservedResource();
         if (null == res) {
           res = c.getAllocatedResource();
         }
 
         if (null != res) {
+          // 扣除该container的资源，更新该队列需要抢占资源
           tq.deductActuallyToBePreempted(context.getResourceCalculator(),
               tq.totalPartitionResource, res);
           Collection<TempAppPerPartition> tas = tq.getApps();
@@ -110,6 +117,7 @@ public class CapacitySchedulerPreemptionUtils {
       CapacitySchedulerPreemptionContext context,
       Resource totalPartitionResource, Collection<TempAppPerPartition> tas,
       Resource res) {
+    // an app更新待抢占资源
     for (TempAppPerPartition ta : tas) {
       ta.deductActuallyToBePreempted(context.getResourceCalculator(),
           totalPartitionResource, res);

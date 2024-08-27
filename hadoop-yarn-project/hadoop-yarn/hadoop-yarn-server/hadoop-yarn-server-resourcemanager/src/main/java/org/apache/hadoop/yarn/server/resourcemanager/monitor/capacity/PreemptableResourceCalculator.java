@@ -205,11 +205,12 @@ public class PreemptableResourceCalculator
            * selector is not reservedPreemptionCandidatesSelector.
            */
 
-          //实际抢占资源需乘以用户配置的naturalTerminationFactor参数。
+          // 获取队列允许被抢占的资源
           Resource resToObtain = qT.toBePreempted;
           if (!isReservedPreemptionCandidatesSelector) {
             if (Resources.greaterThan(rc, clusterResource, resToObtain,
                 Resource.newInstance(0, 0))) {
+              //实际抢占资源需乘以用户配置的naturalTerminationFactor参数。
               resToObtain = Resources.multiplyAndNormalizeUp(rc, qT.toBePreempted,
                   context.getNaturalTerminationFactor(), Resource.newInstance(1, 1));
             }
