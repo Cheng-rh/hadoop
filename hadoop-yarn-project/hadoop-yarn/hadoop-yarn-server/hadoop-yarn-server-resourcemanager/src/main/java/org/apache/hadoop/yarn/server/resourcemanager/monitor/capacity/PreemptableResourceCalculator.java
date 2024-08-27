@@ -65,11 +65,11 @@ public class PreemptableResourceCalculator
    * demands. It terminates when no resources are left to assign, or when all
    * demand is satisfied.
    *
-   * @param rc resource calculator
+   * @param rc resource calculator  资源计算器
    * @param queues a list of cloned queues to be assigned capacity to (this is
-   * an out param)
-   * @param totalPreemptionAllowed total amount of preemption we allow
-   * @param tot_guarant the amount of capacity assigned to this pool of queues
+   * an out param) 同一个父节点的所有队列
+   * @param totalPreemptionAllowed total amount of preemption we allow  这一轮允许被抢占的总资源
+   * @param tot_guarant the amount of capacity assigned to this pool of queues  父队列的理想资源（资源最小配置）
    */
   protected void computeIdealResourceDistribution(ResourceCalculator rc,
       List<TempQueuePerPartition> queues, Resource totalPreemptionAllowed,
@@ -87,6 +87,7 @@ public class PreemptableResourceCalculator
     Set<TempQueuePerPartition> zeroGuarQueues = new HashSet<>();
 
     for (TempQueuePerPartition q : qAlloc) {
+      // 遍历同一个父队列的所有子队列，有最小资源配置的存放在nonZeroGuarQueues，没有最小配置的存放在zeroGuarQueues
       if (Resources.greaterThan(rc, tot_guarant,
           q.getGuaranteed(), Resources.none())) {
         nonZeroGuarQueues.add(q);
@@ -96,6 +97,7 @@ public class PreemptableResourceCalculator
     }
 
     // first compute the allocation as a fixpoint based on guaranteed capacity
+    // 根据最小资源配置计算资源分布
     computeFixpointAllocation(tot_guarant, new HashSet<>(nonZeroGuarQueues),
         unassigned, false);
 
@@ -103,6 +105,7 @@ public class PreemptableResourceCalculator
     // queues uniformly (i.e., not based on guaranteed capacity, as this is zero)
     if (!zeroGuarQueues.isEmpty()
         && Resources.greaterThan(rc, tot_guarant, unassigned, Resources.none())) {
+      // 没有设置最小资源分配的话，则平均分配
       computeFixpointAllocation(tot_guarant, zeroGuarQueues, unassigned,
           true);
     }
@@ -111,6 +114,7 @@ public class PreemptableResourceCalculator
     // how much preemption is required overall
     Resource totPreemptionNeeded = Resource.newInstance(0, 0);
     for (TempQueuePerPartition t:queues) {
+      //总的抢占资源 = 当前队列使用资源 - 队列理想分布资源
       if (Resources.greaterThan(rc, tot_guarant,
           t.getUsed(), t.idealAssigned)) {
         Resources.addTo(totPreemptionNeeded, Resources
@@ -123,6 +127,7 @@ public class PreemptableResourceCalculator
      * that is used to scale down how much we ask back from each queue
      */
     float scalingFactor = 1.0F;
+    // 总的抢占资源 > 此轮允许抢占的资源，则进行缩放。
     if (Resources.greaterThan(rc,
         tot_guarant, totPreemptionNeeded, totalPreemptionAllowed)) {
       scalingFactor = Resources.divide(rc, tot_guarant, totalPreemptionAllowed,
@@ -150,8 +155,10 @@ public class PreemptableResourceCalculator
     if (root.getChildren() != null &&
         root.getChildren().size() > 0) {
       // compute ideal distribution at this level
+      // 计算该层下各个子队列的理想分布
       computeIdealResourceDistribution(rc, root.getChildren(),
           totalPreemptionAllowed, root.idealAssigned);
+
       // compute recursively for lower levels and build list of leafs
       for (TempQueuePerPartition t : root.getChildren()) {
         recursivelyComputeIdealAssignment(t, totalPreemptionAllowed);
@@ -163,7 +170,7 @@ public class PreemptableResourceCalculator
       Set<String> leafQueueNames, Resource clusterResource) {
     // Loop all leaf queues
     for (String queueName : leafQueueNames) {
-      // check if preemption disabled for the queue
+      // 跳过没有开启抢占的队列
       if (context.getQueueByPartition(queueName,
           RMNodeLabelsManager.NO_LABEL).preemptionDisabled) {
         if (LOG.isDebugEnabled()) {
@@ -177,6 +184,7 @@ public class PreemptableResourceCalculator
       for (TempQueuePerPartition qT : context.getQueuePartitions(queueName)) {
         // we act only if we are violating balance by more than
         // maxIgnoredOverCapacity
+        // 如果队列当前使用资源量大于用户配置的最低资源保证*(1 + maxIgnoredOverCapacity)，则允许对此队列进行资源抢占。
         if (Resources.greaterThan(rc, clusterResource,
             qT.getUsed(), Resources
                 .multiply(qT.getGuaranteed(),
@@ -196,6 +204,8 @@ public class PreemptableResourceCalculator
            * So to make it simple, only apply nature_termination_factor when
            * selector is not reservedPreemptionCandidatesSelector.
            */
+
+          //实际抢占资源需乘以用户配置的naturalTerminationFactor参数。
           Resource resToObtain = qT.toBePreempted;
           if (!isReservedPreemptionCandidatesSelector) {
             if (Resources.greaterThan(rc, clusterResource, resToObtain,
@@ -213,6 +223,7 @@ public class PreemptableResourceCalculator
                   + " resource-to-obtain=" + resToObtain);
             }
           }
+          // 设置真正被抢占的资源
           qT.setActuallyToBePreempted(Resources.clone(resToObtain));
         } else {
           qT.setActuallyToBePreempted(Resources.none());
@@ -227,8 +238,10 @@ public class PreemptableResourceCalculator
 
   private void updatePreemptableExtras(TempQueuePerPartition cur) {
     if (cur.children == null || cur.children.isEmpty()) {
+      //更新该队列抢占附加信息
       cur.updatePreemptableExtras(rc);
     } else {
+      //如果存在子队列，则更新子队列的抢占附加信息
       for (TempQueuePerPartition child : cur.children) {
         updatePreemptableExtras(child);
       }
@@ -239,18 +252,23 @@ public class PreemptableResourceCalculator
   public void computeIdealAllocation(Resource clusterResource,
       Resource totalPreemptionAllowed) {
     for (String partition : context.getAllPartitions()) {
+      //获取root队列
       TempQueuePerPartition tRoot = context.getQueueByPartition(
           CapacitySchedulerConfiguration.ROOT, partition);
+      //更新队列资源可被抢占的附加信息，基本为（当前使用资源 - 队列最小配置资源）
       updatePreemptableExtras(tRoot);
 
       // compute the ideal distribution of resources among queues
       // updates cloned queues state accordingly
+      //初始化root的理想资源分配为配置的最小资源
       tRoot.initializeRootIdealWithGuarangeed();
+      //计算队列间资源的理想分布(重新计算并设置各子队列理想最低资源)
       recursivelyComputeIdealAssignment(tRoot, totalPreemptionAllowed);
     }
 
     // based on ideal allocation select containers to be preempted from each
     // calculate resource-to-obtain by partition for each leaf queues
+    // 基于理想资源分布队列，选在需要被抢占的container
     calculateResToObtainByPartitionForLeafQueues(context.getLeafQueueNames(),
         clusterResource);
   }

@@ -289,6 +289,8 @@ public class IntraQueueCandidatesSelector extends PreemptionCandidatesSelector {
 
     // 1. Iterate through all partition to calculate demand within a partition.
     for (String partition : context.getAllPartitions()) {
+
+      //获取分区下所有的队列名，并遍历
       LinkedHashSet<String> queueNames = context
           .getUnderServedQueuesPerPartition(partition);
 
@@ -298,6 +300,8 @@ public class IntraQueueCandidatesSelector extends PreemptionCandidatesSelector {
 
       // 2. loop through all queues corresponding to a partition.
       for (String queueName : queueNames) {
+
+        // 获取叶子节点
         TempQueuePerPartition tq = context.getQueueByPartition(queueName,
             partition);
         LeafQueue leafQueue = tq.leafQueue;
@@ -309,11 +313,14 @@ public class IntraQueueCandidatesSelector extends PreemptionCandidatesSelector {
 
         // 3. Consider reassignableResource as (used - actuallyToBePreempted).
         // This provides as upper limit to split apps quota in a queue.
+        // 可重新分配的资源 = 使用资源 - 被抢占资源
+        // 被抢占资源 = （使用资源 - 理想最小资源） * normalizedGuarantee
         Resource queueReassignableResource = Resources.subtract(tq.getUsed(),
             tq.getActuallyToBePreempted());
 
         // 4. Check queue's used capacity. Make sure that the used capacity is
         // above certain limit to consider for intra queue preemption.
+        // 资源使用率小于配置值
         if (leafQueue.getQueueCapacities().getUsedCapacity(partition) < context
             .getMinimumThresholdForIntraQueuePreemption()) {
           continue;

@@ -140,6 +140,7 @@ public class TempQueuePerPartition extends AbstractPreemptionEntity {
   Resource offer(Resource avail, ResourceCalculator rc,
       Resource clusterResource, boolean considersReservedResource,
       boolean allowQueueBalanceAfterAllSafisfied) {
+    //队列剩余最大可申请资源（最大资源限制 - 当前申请资源）
     Resource absMaxCapIdealAssignedDelta = Resources.componentwiseMax(
         Resources.subtract(getMax(), idealAssigned),
         Resource.newInstance(0, 0));
@@ -152,6 +153,7 @@ public class TempQueuePerPartition extends AbstractPreemptionEntity {
     //               # This is for leaf queue only.
     //               max(guaranteed, used) - assigned}
     // remain = avail - accepted
+    // 申请资源 = min（剩余最大可申请资源， min(本轮可申请资源，当前使用资源 + 阻塞使用资源 - 已申请资源) ）
     Resource accepted = Resources.componentwiseMin(
         absMaxCapIdealAssignedDelta,
         Resources.min(rc, clusterResource, avail, Resources
@@ -196,6 +198,7 @@ public class TempQueuePerPartition extends AbstractPreemptionEntity {
     // or more than offered
     accepted = Resources.componentwiseMin(accepted, avail);
 
+    // 空闲资源 = 可用资源 - 申请资源
     Resource remain = Resources.subtract(avail, accepted);
     Resources.addTo(idealAssigned, accepted);
     return remain;
@@ -222,6 +225,8 @@ public class TempQueuePerPartition extends AbstractPreemptionEntity {
     untouchableExtra = Resources.none();
     preemptableExtra = Resources.none();
 
+    // 获取超用的资源（使用资源 - 最小配置资源），yarn保障的是最小配置资源
+    // 如果资源没有超用，则为空
     Resource extra = Resources.subtract(getUsed(), getGuaranteed());
     if (Resources.lessThan(rc, totalPartitionResource, extra,
         Resources.none())) {
@@ -230,6 +235,7 @@ public class TempQueuePerPartition extends AbstractPreemptionEntity {
 
     if (null == children || children.isEmpty()) {
       // If it is a leaf queue
+      //如果队列设置的是不能被抢占，则该队列超用的资源为不可使用资源，否则为被抢占资源。
       if (preemptionDisabled) {
         untouchableExtra = extra;
       } else {
@@ -237,17 +243,22 @@ public class TempQueuePerPartition extends AbstractPreemptionEntity {
       }
     } else {
       // If it is a parent queue
+      // 如果是父队列，则统计所有子队列中可被抢占资源总和
       Resource childrensPreemptable = Resource.newInstance(0, 0);
       for (TempQueuePerPartition child : children) {
         Resources.addTo(childrensPreemptable, child.preemptableExtra);
       }
+
       // untouchableExtra = max(extra - childrenPreemptable, 0)
       if (Resources.greaterThanOrEqual(rc, totalPartitionResource,
           childrensPreemptable, extra)) {
         untouchableExtra = Resource.newInstance(0, 0);
       } else {
+        // 父队列超用资源 - 其子队列所有可被抢占的资源 = 父队列中不可使用资源
         untouchableExtra = Resources.subtract(extra, childrensPreemptable);
       }
+
+      // 父队列被抢占资源 = min(子队列所有被抢占资源，父队列超用资源)
       preemptableExtra = Resources.min(rc, totalPartitionResource,
           childrensPreemptable, extra);
     }
@@ -271,7 +282,9 @@ public class TempQueuePerPartition extends AbstractPreemptionEntity {
 
   public void assignPreemption(float scalingFactor, ResourceCalculator rc,
       Resource clusterResource) {
+    //正在使用，不能被kill的资源
     Resource usedDeductKillable = Resources.subtract(getUsed(), killable);
+    //总资源 = 当前正在使用 + 正在申请的资源
     Resource totalResource = Resources.add(getUsed(), pending);
 
     // The minimum resource that we need to keep for a queue is:
@@ -282,16 +295,20 @@ public class TempQueuePerPartition extends AbstractPreemptionEntity {
     // guaranteed and total. We should avoid preempt from a queue if it is
     // already
     // <= its guaranteed resource.
+    // 此刻最大资源 = max(min(总资源，最小资源保障), 申请分配资源)
     Resource minimumQueueResource = Resources.max(rc, clusterResource,
+        //min(总资源，最小资源保障)
         Resources.min(rc, clusterResource, totalResource, getGuaranteed()),
         idealAssigned);
-
+    // 扣除kill后，正在使用的资源 > 当前能申请的最大资源
     if (Resources.greaterThan(rc, clusterResource, usedDeductKillable,
         minimumQueueResource)) {
+      // 获取被抢占的资源
       toBePreempted = Resources.multiply(
           Resources.subtract(usedDeductKillable, minimumQueueResource),
           scalingFactor);
     } else {
+      // 否则被抢占的资源为空
       toBePreempted = Resources.none();
     }
   }

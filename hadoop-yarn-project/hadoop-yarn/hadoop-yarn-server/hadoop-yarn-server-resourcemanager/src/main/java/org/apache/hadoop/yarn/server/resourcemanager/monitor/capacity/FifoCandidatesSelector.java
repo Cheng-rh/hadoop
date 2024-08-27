@@ -63,6 +63,7 @@ public class FifoCandidatesSelector
       Resource clusterResource, Resource totalPreemptionAllowed) {
     Map<ApplicationAttemptId, Set<RMContainer>> curCandidates = new HashMap<>();
     // Calculate how much resources we need to preempt
+
     preemptableAmountCalculator.computeIdealAllocation(clusterResource,
         totalPreemptionAllowed);
 
@@ -90,7 +91,7 @@ public class FifoCandidatesSelector
       // compute resToObtainByPartition considered inter-queue preemption
       LeafQueue leafQueue = preemptionContext.getQueueByPartition(queueName,
           RMNodeLabelsManager.NO_LABEL).leafQueue;
-
+      //获取该队列在每个资源池要被抢占的量
       Map<String, Resource> resToObtainByPartition =
           CapacitySchedulerPreemptionUtils
               .getResToObtainByPartitionForLeafQueue(preemptionContext,
@@ -100,6 +101,7 @@ public class FifoCandidatesSelector
         leafQueue.getReadLock().lock();
         // go through all ignore-partition-exclusivity containers first to make
         // sure such containers will be preemptionCandidates first
+        // 使用共享池资源的，先处理
         Map<String, TreeSet<RMContainer>> ignorePartitionExclusivityContainers =
             leafQueue.getIgnoreExclusivityRMContainers();
         for (String partition : resToObtainByPartition.keySet()) {
@@ -108,12 +110,14 @@ public class FifoCandidatesSelector
                 ignorePartitionExclusivityContainers.get(partition);
             // We will check container from reverse order, so latter submitted
             // application's containers will be preemptionCandidates first.
+            // 最后提交的任务，会被最先抢占
             for (RMContainer c : rmContainers.descendingSet()) {
               if (CapacitySchedulerPreemptionUtils.isContainerAlreadySelected(c,
                   selectedCandidates)) {
                 // Skip already selected containers
                 continue;
               }
+              // 将 Container 放到待抢占集合 preemptMap 中
               boolean preempted = CapacitySchedulerPreemptionUtils
                   .tryPreemptContainerAndDeductResToObtain(rc,
                       preemptionContext, resToObtainByPartition, c,
@@ -126,7 +130,7 @@ public class FifoCandidatesSelector
           }
         }
 
-        // preempt other containers
+        // 默认是 FifoOrderingPolicy，desc 也就是最后提交的在最前面
         Resource skippedAMSize = Resource.newInstance(0, 0);
         Iterator<FiCaSchedulerApp> desc =
             leafQueue.getOrderingPolicy().getPreemptionIterator();
@@ -139,6 +143,7 @@ public class FifoCandidatesSelector
             break;
           }
 
+          // 从 application 中选出要被抢占的容器
           preemptFrom(fc, clusterResource, resToObtainByPartition,
               skippedAMContainerlist, skippedAMSize, selectedCandidates,
               curCandidates, totalPreemptionAllowed);

@@ -121,13 +121,13 @@ public class AbstractPreemptableResourceCalculator {
    * distributed uniformly.
    *
    * @param totGuarant
-   *          total guaranteed resource
+   *          total guaranteed resource  父队列理想资源分配（最小资源配置）
    * @param qAlloc
-   *          List of child queues
+   *          List of child queues       全部的子队列
    * @param unassigned
-   *          Unassigned resource per queue
+   *          Unassigned resource per queue  未被申请的资源
    * @param ignoreGuarantee
-   *          ignore guarantee per queue.
+   *          ignore guarantee per queue.   是否忽略每个队列的最小资源配置
    */
   protected void computeFixpointAllocation(Resource totGuarant,
       Collection<TempQueuePerPartition> qAlloc, Resource unassigned,
@@ -139,30 +139,41 @@ public class AbstractPreemptableResourceCalculator {
     // If the queue has all of its needs met (that is, if
     // idealAssigned >= current + pending), remove it from consideration.
     // Sort queues from most under-guaranteed to most over-guaranteed.
+
+    // 初始化优先级队列
     TQComparator tqComparator = new TQComparator(rc, totGuarant);
     PriorityQueue<TempQueuePerPartition> orderedByNeed = new PriorityQueue<>(10,
         tqComparator);
+
+    //遍历同一个父队列的所有子队列
     for (Iterator<TempQueuePerPartition> i = qAlloc.iterator(); i.hasNext(); ) {
+      //获取子队列的使用资源
       TempQueuePerPartition q = i.next();
       Resource used = q.getUsed();
 
       Resource initIdealAssigned;
+
       if (Resources.greaterThan(rc, totGuarant, used, q.getGuaranteed())) {
+
         initIdealAssigned = Resources.add(
+                //分配资源 = min(理想资源<最小资源配置>，队列使用资源)
             Resources.componentwiseMin(q.getGuaranteed(), q.getUsed()),
             q.untouchableExtra);
       } else{
+        //如果使用的资源小于最小分配资源，则该队列初始化资源分布为其使用资源
         initIdealAssigned = Resources.clone(used);
       }
 
       // perform initial assignment
+      // 初始化该队列理想申请资源 = initIdealAssigned
       initIdealAssignment(totGuarant, q, initIdealAssigned);
-
+      // 更新还未分配的资源
       Resources.subtractFrom(unassigned, q.idealAssigned);
 
       // If idealAssigned < (allocated + used + pending), q needs more
       // resources, so
       // add it to the list of underserved queues, ordered by need.
+      // 如果理想分配资源 < (正在使用资源 + 阻塞等待资源)，说明还需要更多的资源，添加到orderedByNeed中，根据需求排序
       Resource curPlusPend = Resources.add(q.getUsed(), q.pending);
       if (Resources.lessThan(rc, totGuarant, q.idealAssigned, curPlusPend)) {
         orderedByNeed.add(q);
@@ -171,10 +182,12 @@ public class AbstractPreemptableResourceCalculator {
 
     // assign all cluster resources until no more demand, or no resources are
     // left
+    // 继续分配资源，直到所有队列资源都满足，或者集群资源全部分配完成
     while (!orderedByNeed.isEmpty() && Resources.greaterThan(rc, totGuarant,
         unassigned, Resources.none())) {
       // we compute normalizedGuarantees capacity based on currently active
       // queues
+      // 归一化队列资源
       resetCapacity(unassigned, orderedByNeed, ignoreGuarantee);
 
       // For each underserved queue (or set of queues if multiple are equally
@@ -183,11 +196,13 @@ public class AbstractPreemptableResourceCalculator {
       // place it back in the ordered list of queues, recalculating its place
       // in the order of most under-guaranteed to most over-guaranteed. In this
       // way, the most underserved queue(s) are always given resources first.
+      // 按照最缺资源的，优先分配资源。
       Collection<TempQueuePerPartition> underserved = getMostUnderservedQueues(
           orderedByNeed, tqComparator);
 
       // This value will be used in every round to calculate ideal allocation.
       // So make a copy to avoid it changed during calculation.
+      // 还未分配完成的集群资源
       Resource dupUnassignedForTheRound = Resources.clone(unassigned);
 
       for (Iterator<TempQueuePerPartition> i = underserved.iterator(); i
@@ -195,28 +210,31 @@ public class AbstractPreemptableResourceCalculator {
         if (!rc.isAnyMajorResourceAboveZero(unassigned)) {
           break;
         }
-
+        // 资源短缺的队列
         TempQueuePerPartition sub = i.next();
 
         // How much resource we offer to the queue (to increase its ideal_alloc
+        // 队列可用资源 wQavail = 还未分配完成的集群资源 * 正则化的百分比，
+        // 保证其计算的wQavail不能超过未分配的资源
         Resource wQavail = Resources.multiplyAndNormalizeUp(rc,
             dupUnassignedForTheRound,
             sub.normalizedGuarantee, this.stepFactor);
-
-        // Make sure it is not beyond unassigned
         wQavail = Resources.componentwiseMin(wQavail, unassigned);
 
+        // 队列空闲资源
         Resource wQidle = sub.offer(wQavail, rc, totGuarant,
             isReservedPreemptionCandidatesSelector,
             allowQueuesBalanceAfterAllQueuesSatisfied);
+        // 该队列此轮分配资源
         Resource wQdone = Resources.subtract(wQavail, wQidle);
 
+        //如果此轮分配的资源>0,则说明该队列资源还短缺
         if (Resources.greaterThan(rc, totGuarant, wQdone, Resources.none())) {
           // The queue is still asking for more. Put it back in the priority
           // queue, recalculating its order based on need.
           orderedByNeed.add(sub);
         }
-
+        //更新未分配资源 = 总的未分配资源 - 该队列此轮分配的资源
         Resources.subtractFrom(unassigned, wQdone);
 
         // Make sure unassigned is always larger than 0
@@ -228,6 +246,7 @@ public class AbstractPreemptableResourceCalculator {
     // queue preemption will not try for any preemption. How ever there are
     // chances that within a queue, there are some imbalances. Hence make sure
     // all queues are added to list.
+    // 记录服务不足的队列
     while (!orderedByNeed.isEmpty()) {
       TempQueuePerPartition q1 = orderedByNeed.remove();
       context.addPartitionToUnderServedQueues(q1.queueName, q1.partition);
@@ -264,7 +283,9 @@ public class AbstractPreemptableResourceCalculator {
     Resource activeCap = Resource.newInstance(0, 0);
     int maxLength = ResourceUtils.getNumberOfKnownResourceTypes();
 
+    //归一化资源
     if (ignoreGuar) {
+      // 忽略最小资源配置，平均分配
       for (TempQueuePerPartition q : queues) {
         for (int i = 0; i < maxLength; i++) {
           q.normalizedGuarantee[i] = 1.0f / queues.size();

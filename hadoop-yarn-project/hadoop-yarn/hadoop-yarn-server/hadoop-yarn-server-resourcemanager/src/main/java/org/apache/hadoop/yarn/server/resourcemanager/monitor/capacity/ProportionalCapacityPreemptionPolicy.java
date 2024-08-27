@@ -314,9 +314,11 @@ public class ProportionalCapacityPreemptionPolicy
     updateConfigIfNeeded();
 
     long startTs = clock.getTime();
-
+    //租户队列
     CSQueue root = scheduler.getRootQueue();
+    //集群资源快照
     Resource clusterResources = Resources.clone(scheduler.getClusterResource());
+    //container抢占或者kill
     containerBasedPreemptOrKill(root, clusterResources);
 
     if (LOG.isDebugEnabled()) {
@@ -386,9 +388,11 @@ public class ProportionalCapacityPreemptionPolicy
 
   private void syncKillableContainersFromScheduler() {
     // sync preemptable entities from scheduler
+    // 从scheduler中获取可抢占队列的副本
     preemptableQueues =
         scheduler.getPreemptionManager().getShallowCopyOfPreemptableQueues();
 
+    //从队列中获取可以被kill的container
     killableContainers = new HashSet<>();
     for (Map.Entry<String, PreemptableQueue> entry : preemptableQueues
         .entrySet()) {
@@ -429,27 +433,29 @@ public class ProportionalCapacityPreemptionPolicy
    * This method selects and tracks containers to be preemptionCandidates. If a container
    * is in the target list for more than maxWaitTime it is killed.
    *
-   * @param root the root of the CapacityScheduler queue hierarchy
-   * @param clusterResources the total amount of resources in the cluster
+   * @param root yarn capacity队列组织
+   * @param clusterResources yarn cluster全部资源
    */
   private void containerBasedPreemptOrKill(CSQueue root,
       Resource clusterResources) {
     // Sync killable containers from scheduler when lazy preemption enabled
+    // 懒抢占模式，只同步可以kill的container
     if (lazyPreempionEnabled) {
       syncKillableContainersFromScheduler();
     }
 
-    // All partitions to look at
+    // partitions为nodemanager的标签
     Set<String> partitions = new HashSet<>();
     partitions.addAll(scheduler.getRMContext()
         .getNodeLabelManager().getClusterNodeLabelNames());
+    //没有标签即为空字符串
     partitions.add(RMNodeLabelsManager.NO_LABEL);
     this.allPartitions = ImmutableSet.copyOf(partitions);
 
     // extract a summary of the queues from scheduler
+    // 从ROOT队列开始递归拷贝子队列信息，此步骤目的是为了生成所有队列快照信息，防止集群队列信息变化导致资源抢占过程中出现问题。
     synchronized (scheduler) {
       queueToPartitions.clear();
-
       for (String partitionToLookAt : allPartitions) {
         cloneQueues(root, Resources
                 .clone(nlm.getResourceByLabel(partitionToLookAt, clusterResources)),
@@ -458,12 +464,12 @@ public class ProportionalCapacityPreemptionPolicy
 
       // Update effective priority of queues
     }
-
+    // 获取叶子节点名
     this.leafQueueNames = ImmutableSet.copyOf(getLeafQueueNames(
         getQueueByPartition(CapacitySchedulerConfiguration.ROOT,
             RMNodeLabelsManager.NO_LABEL)));
 
-    // compute total preemption allowed
+    // 在一个周期内能够抢占资源的最大值=集群资源*能够抢占资源的最大的比例
     Resource totalPreemptionAllowed = Resources.multiply(clusterResources,
         percentageClusterPreemptionAllowed);
 
@@ -472,10 +478,14 @@ public class ProportionalCapacityPreemptionPolicy
 
     // based on ideal allocation select containers to be preemptionCandidates from each
     // queue and each application
+    // appId对应的抢占Container
     Map<ApplicationAttemptId, Set<RMContainer>> toPreempt =
         new HashMap<>();
+    // 抢占选择器、appId、抢占Container
     Map<PreemptionCandidatesSelector, Map<ApplicationAttemptId,
-        Set<RMContainer>>> toPreemptPerSelector =  new HashMap<>();;
+        Set<RMContainer>>> toPreemptPerSelector =  new HashMap<>();
+
+    //使用抢占选择器选择对应的container
     for (PreemptionCandidatesSelector selector :
         candidatesSelectionPolicies) {
       long startTime = 0;
@@ -485,6 +495,8 @@ public class ProportionalCapacityPreemptionPolicy
                 selector.getClass().getName()));
         startTime = clock.getTime();
       }
+
+      //选择appid以及对应待kill的container
       Map<ApplicationAttemptId, Set<RMContainer>> curCandidates =
           selector.selectCandidates(toPreempt, clusterResources,
               totalPreemptionAllowed);

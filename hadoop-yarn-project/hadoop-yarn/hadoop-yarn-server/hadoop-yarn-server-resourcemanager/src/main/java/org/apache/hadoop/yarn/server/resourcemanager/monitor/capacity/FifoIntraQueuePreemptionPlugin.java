@@ -125,12 +125,14 @@ public class FifoIntraQueuePreemptionPlugin
     // 1. AM used resource can be considered as a frozen resource for now.
     // Hence such containers in a queue can be omitted from the preemption
     // calculation.
+    // 计算AM的使用资源
     Map<String, Resource> perUserAMUsed = new HashMap<String, Resource>();
     Resource amUsed = calculateUsedAMResourcesPerQueue(tq.partition,
         tq.leafQueue, perUserAMUsed);
     Resources.subtractFrom(queueReassignableResource, amUsed);
 
     // 2. tq.leafQueue will not be null as we validated it in caller side
+    // 所有的APP
     Collection<FiCaSchedulerApp> apps = tq.leafQueue.getAllApplications();
 
     // We do not need preemption for a single app
@@ -140,6 +142,7 @@ public class FifoIntraQueuePreemptionPlugin
 
     // 3. Create all tempApps for internal calculation and return a list from
     // high priority to low priority order.
+    // APP对应的TempAppPerPartition
     PriorityQueue<TempAppPerPartition> orderedByPriority = createTempAppForResCalculation(
         tq, apps, clusterResource, perUserAMUsed);
 
@@ -388,12 +391,16 @@ public class FifoIntraQueuePreemptionPlugin
     for (FiCaSchedulerApp app : apps) {
 
       Resource used = app.getAppAttemptResourceUsage().getUsed(partition);
+
+      // APP对应AM的使用资源
       Resource amUsed = null;
       if (!app.isWaitingForAMContainer()) {
         amUsed = app.getAMResource(partition);
       }
+      // APP待申请的资源
       Resource pending = app.getTotalPendingRequestsPerPartition()
           .get(partition);
+      // APP预留的资源
       Resource reserved = app.getAppAttemptResourceUsage()
           .getReserved(partition);
 
@@ -420,11 +427,13 @@ public class FifoIntraQueuePreemptionPlugin
       String userName = app.getUser();
       TempUserPerPartition tmpUser = usersPerPartition.get(userName);
       if (tmpUser == null) {
+        // 每个用户资源使用
         ResourceUsage userResourceUsage = tq.leafQueue.getUser(userName)
             .getResourceUsage();
 
         // perUserAMUsed was populated with running apps, now we are looping
         // through both running and pending apps.
+        //每个用户AM资源使用
         Resource userSpecificAmUsed = perUserAMUsed.get(userName);
         amUsed = (userSpecificAmUsed == null)
             ? Resources.none() : userSpecificAmUsed;
