@@ -288,9 +288,9 @@ public class IntraQueueCandidatesSelector extends PreemptionCandidatesSelector {
       Map<ApplicationAttemptId, Set<RMContainer>> selectedCandidates) {
 
     // 1. Iterate through all partition to calculate demand within a partition.
+    // 遍历所有的分区名
     for (String partition : context.getAllPartitions()) {
 
-      //获取分区下所有的队列名，并遍历
       LinkedHashSet<String> queueNames = context
           .getUnderServedQueuesPerPartition(partition);
 
@@ -299,9 +299,10 @@ public class IntraQueueCandidatesSelector extends PreemptionCandidatesSelector {
       }
 
       // 2. loop through all queues corresponding to a partition.
+      // 遍历关联分区的所有队列
       for (String queueName : queueNames) {
 
-        // 获取叶子节点
+        // 根据队列名，分区，获取队列信息以及对应的叶子节点
         TempQueuePerPartition tq = context.getQueueByPartition(queueName,
             partition);
         LeafQueue leafQueue = tq.leafQueue;
@@ -320,14 +321,14 @@ public class IntraQueueCandidatesSelector extends PreemptionCandidatesSelector {
 
         // 4. Check queue's used capacity. Make sure that the used capacity is
         // above certain limit to consider for intra queue preemption.
-        // 资源使用率小于配置值
+        // 资源使用率小于配置值，直接跳过
         if (leafQueue.getQueueCapacities().getUsedCapacity(partition) < context
             .getMinimumThresholdForIntraQueuePreemption()) {
           continue;
         }
 
         // 5. compute the allocation of all apps based on queue's unallocated
-        // capacity
+        // 计算队列呢App理想分布
         fifoPreemptionComputePlugin.computeAppsIdealAllocation(clusterResource,
             tq, selectedCandidates, totalPreemptedResourceAllowed,
             queueReassignableResource,

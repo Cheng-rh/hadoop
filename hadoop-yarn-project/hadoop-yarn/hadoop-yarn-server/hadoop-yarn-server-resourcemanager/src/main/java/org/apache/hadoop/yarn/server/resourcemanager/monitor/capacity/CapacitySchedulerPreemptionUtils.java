@@ -164,12 +164,15 @@ public class CapacitySchedulerPreemptionUtils {
     ApplicationAttemptId attemptId = rmContainer.getApplicationAttemptId();
 
     // We will not account resource of a container twice or more
+    // 判断该container是否已经被选择
     if (preemptMapContains(preemptMap, attemptId, rmContainer)) {
       return false;
     }
 
+    // 获取分区
     String nodePartition = getPartitionByNodeId(context,
         rmContainer.getAllocatedNode());
+    // 根据分区获取待抢占资源
     Resource toObtainByPartition = resourceToObtainByPartitions
         .get(nodePartition);
     if (null == toObtainByPartition) {
@@ -189,10 +192,12 @@ public class CapacitySchedulerPreemptionUtils {
       boolean doPreempt;
 
       // How much resource left after preemption happen.
+      // 该container资源抢占后剩余的资源
       Resource toObtainAfterPreemption = Resources.subtract(toObtainByPartition,
           rmContainer.getAllocatedResource());
 
       if (conservativeDRF) {
+        //如果资源不是0或者负的，说明可以抢占
         doPreempt = !rc.isAnyMajorResourceZeroOrNegative(toObtainByPartition);
       } else {
         // When we want to do more aggressive preemption, we will do preemption
@@ -205,28 +210,34 @@ public class CapacitySchedulerPreemptionUtils {
         //     * before: <30, 10, 5>, after <20, 10, -10>
         //   But this not positive contribution:
         //     * before: <30, 10, 0>, after <30, 10, -15>
+        // 只有资源被抢占后，确实比被抢占前资源少时，说明抢占是有效的
         doPreempt = Resources.lessThan(rc, clusterResource,
+            // 抢占后剩余资源
             Resources
                 .componentwiseMax(toObtainAfterPreemption, Resources.none()),
+            //按分区抢占资源
             Resources.componentwiseMax(toObtainByPartition, Resources.none()));
       }
 
       if (!doPreempt) {
         return false;
       }
-
+      // 更新按分区抢占资源
       Resources.subtractFrom(toObtainByPartition,
           rmContainer.getAllocatedResource());
+      // 更新总的抢占资源
       Resources.subtractFrom(totalPreemptionAllowed,
           rmContainer.getAllocatedResource());
 
       // When we have no more resource need to obtain, remove from map.
+      // 如果按分区抢占资源是负的，则直接移除
       if (Resources.lessThanOrEqual(rc, clusterResource, toObtainByPartition,
           Resources.none())) {
         resourceToObtainByPartitions.remove(nodePartition);
       }
 
       // Add to preemptMap
+      // 记录被抢占的container
       addToPreemptMap(preemptMap, curCandidates, attemptId, rmContainer);
       return true;
     }
@@ -243,8 +254,11 @@ public class CapacitySchedulerPreemptionUtils {
       Map<ApplicationAttemptId, Set<RMContainer>> preemptMap,
       Map<ApplicationAttemptId, Set<RMContainer>> curCandidates,
       ApplicationAttemptId appAttemptId, RMContainer containerToPreempt) {
+    // 记录被抢占的container
     Set<RMContainer> setForToPreempt = preemptMap.get(appAttemptId);
     Set<RMContainer> setForCurCandidates = curCandidates.get(appAttemptId);
+
+    //记录需要被抢占的container
     if (null == setForToPreempt) {
       setForToPreempt = new HashSet<>();
       preemptMap.put(appAttemptId, setForToPreempt);

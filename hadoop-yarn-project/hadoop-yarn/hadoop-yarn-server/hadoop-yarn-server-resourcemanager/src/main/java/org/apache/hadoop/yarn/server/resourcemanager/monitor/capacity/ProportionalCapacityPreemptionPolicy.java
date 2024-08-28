@@ -543,6 +543,7 @@ public class ProportionalCapacityPreemptionPolicy
     pcsMap = toPreemptPerSelector;
 
     // preempt (or kill) the selected containers
+    // 抢占container
     preemptOrkillSelectedContainerAfterWait(toPreemptPerSelector, currentTime);
 
     // cleanup staled preemption candidates
