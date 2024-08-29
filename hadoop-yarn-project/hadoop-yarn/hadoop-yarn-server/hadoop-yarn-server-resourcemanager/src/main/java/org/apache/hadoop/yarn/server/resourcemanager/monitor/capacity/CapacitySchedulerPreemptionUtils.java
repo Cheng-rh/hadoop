@@ -98,7 +98,7 @@ public class CapacitySchedulerPreemptionUtils {
         }
 
         if (null != res) {
-          // 扣除该container的资源，更新该队列需要抢占资源
+          // 扣除该container的资源，更新该队列全部资源
           tq.deductActuallyToBePreempted(context.getResourceCalculator(),
               tq.totalPartitionResource, res);
           Collection<TempAppPerPartition> tas = tq.getApps();

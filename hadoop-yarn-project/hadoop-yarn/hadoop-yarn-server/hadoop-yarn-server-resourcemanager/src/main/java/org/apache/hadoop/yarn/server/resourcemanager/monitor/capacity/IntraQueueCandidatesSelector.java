@@ -130,6 +130,7 @@ public class IntraQueueCandidatesSelector extends PreemptionCandidatesSelector {
     // 2. Previous selectors (with higher priority) could have already
     // selected containers. We need to deduct pre-emptable resources
     // based on already selected candidates.
+    //基于已经选择的container，更新待抢占资源
     CapacitySchedulerPreemptionUtils
         .deductPreemptableResourcesBasedSelectedCandidates(preemptionContext,
             selectedCandidates);
@@ -145,7 +146,9 @@ public class IntraQueueCandidatesSelector extends PreemptionCandidatesSelector {
       }
 
       // 4. Iterate from most under-served queue in order.
+      // 按队列进行遍历
       for (String queueName : queueNames) {
+        // 获取叶子队列信息
         LeafQueue leafQueue = preemptionContext.getQueueByPartition(queueName,
             RMNodeLabelsManager.NO_LABEL).leafQueue;
 
@@ -160,6 +163,7 @@ public class IntraQueueCandidatesSelector extends PreemptionCandidatesSelector {
         }
 
         // 5. Calculate the resource to obtain per partition
+        // 分区及该分区需要被抢占的资源
         Map<String, Resource> resToObtainByPartition = fifoPreemptionComputePlugin
             .getResourceDemandFromAppsPerQueue(queueName, partition);
 
@@ -167,6 +171,7 @@ public class IntraQueueCandidatesSelector extends PreemptionCandidatesSelector {
         // userlimit preemption, its possible that some lower priority apps
         // needs from high priority app of another user. Hence use apps
         // ordered by userlimit starvation as well.
+        // 顾虑不被抢占的app
         Collection<FiCaSchedulerApp> apps = fifoPreemptionComputePlugin
             .getPreemptableApps(queueName, partition);
 
@@ -181,6 +186,7 @@ public class IntraQueueCandidatesSelector extends PreemptionCandidatesSelector {
         try {
           leafQueue.getReadLock().lock();
           for (FiCaSchedulerApp app : apps) {
+            //
             preemptFromLeastStarvedApp(leafQueue, app, selectedCandidates,
                 curCandidates, clusterResource, totalPreemptedResourceAllowed,
                 resToObtainByPartition, rollingResourceUsagePerUser);
@@ -199,6 +205,7 @@ public class IntraQueueCandidatesSelector extends PreemptionCandidatesSelector {
       Map<String, Resource> rollingResourceUsagePerUser) {
     for (String user : leafQueue.getAllUsers()) {
       // Initialize used resource of a given user for rolling computation.
+      // 用户及用户对应的使用资源
       rollingResourceUsagePerUser.put(user, Resources.clone(
           leafQueue.getUser(user).getResourceUsage().getUsed(partition)));
       if (LOG.isDebugEnabled()) {
@@ -217,7 +224,7 @@ public class IntraQueueCandidatesSelector extends PreemptionCandidatesSelector {
       Map<String, Resource> rollingResourceUsagePerUser) {
 
     // ToDo: Reuse reservation selector here.
-
+    // 获取正在使用的container
     List<RMContainer> liveContainers = new ArrayList<>(app.getLiveContainers());
     sortContainers(liveContainers);
 
@@ -232,29 +239,34 @@ public class IntraQueueCandidatesSelector extends PreemptionCandidatesSelector {
     for (RMContainer c : liveContainers) {
 
       // if there are no demand, return.
+      //分区没有被抢占资源
       if (resToObtainByPartition.isEmpty()) {
         return;
       }
 
       // skip preselected containers.
+      // container已经被选择
       if (CapacitySchedulerPreemptionUtils.isContainerAlreadySelected(c,
           selectedCandidates)) {
         continue;
       }
 
       // Skip already marked to killable containers
+      // container以及被选择kill
       if (null != preemptionContext.getKillableContainers() && preemptionContext
           .getKillableContainers().contains(c.getContainerId())) {
         continue;
       }
 
       // Skip AM Container from preemption for now.
+      // container是AM
       if (c.isAMContainer()) {
         continue;
       }
 
       // If selected container brings down resource usage under its user's
       // UserLimit (or equals to), we must skip such containers.
+      // 扣除该container使用资源后，用户使用资源小于最下用户资源保障
       if (fifoPreemptionComputePlugin.skipContainerBasedOnIntraQueuePolicy(app,
           clusterResource, rollingUsedResourcePerUser, c)) {
         if (LOG.isDebugEnabled()) {
